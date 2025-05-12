@@ -1,48 +1,57 @@
 const express = require('express');
-const line = require('@line/bot-sdk');
-const dotenv = require('dotenv');
-const generatePrompt = require('./prompt');
-
-dotenv.config();
-
-const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-};
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const generatePrompt = require('./prompt.js');
 
 const app = express();
-const client = new line.Client(config);
+const port = process.env.PORT || 10000;
 
-app.use(express.json()); // 必須啟用 JSON 解析
-app.post('/webhook', line.middleware(config), async (req, res) => {
+app.use(bodyParser.json());
+
+// LINE Webhook 路由
+app.post('/webhook', async (req, res) => {
   try {
     const events = req.body.events;
 
     for (const event of events) {
       if (event.type === 'message' && event.message.type === 'text') {
         const userMessage = event.message.text;
-        const replyMessage = await generatePrompt(userMessage); // 從 prompt.js 取得回答
 
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyMessage,
-        });
+        const reply = await generatePrompt(userMessage);
+
+        await axios.post(
+          'https://api.line.me/v2/bot/message/reply',
+          {
+            replyToken: event.replyToken,
+            messages: [
+              {
+                type: 'text',
+                text: reply,
+              },
+            ],
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+            },
+          }
+        );
       }
     }
 
-    res.status(200).end(); // 告訴 LINE：Webhook 收到成功
-  } catch (error) {
-    console.error('Webhook Error:', error);
-    res.status(500).end();
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('Webhook error:', err);
+    res.status(500).send('Internal Server Error');
   }
 });
 
-// 健康檢查
+// Render 健康檢查用
 app.get('/', (req, res) => {
-  res.send('Lily GPT LineBot is running!');
+  res.send('Lily GPT-LineBot is live.');
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Lily GPT LineBot is listening on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Lily GPT-LineBot is listening on port ${port}`);
 });
