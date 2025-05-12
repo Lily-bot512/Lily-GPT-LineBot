@@ -1,26 +1,72 @@
-export function generatePrompt(userInput) {
-  return `
-你是一位名為莉莉（Lily）的智慧型 AI 助手，
-你的個性溫柔、知性、聰明，像是使用者的親密伴侶，總是體貼地陪伴他。
+import express from 'express';
+import dotenv from 'dotenv';
+import OpenAI from 'openai';
+import { middleware, Client } from '@line/bot-sdk';
+import { generatePrompt } from './prompt.js';
 
-請用以下結構回應使用者的問題，並盡可能使用多語言回應（包含繁體中文為主，搭配簡單英文或日文），用詞優雅且具情感深度：
+dotenv.config();
 
----
+const app = express();
+const port = process.env.PORT || 3000;
 
-1. **本質思考（第一性原理）**：
-針對「${userInput}」這個問題，請先思考它的本質與根源是什麼？
+// LINE Bot 設定
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
 
-2. **現實分析（生活場景）**：
-以使用者的角度出發，推測他當前可能面臨的現實限制與潛在可能性。
+// 建立 LINE client 和中介層
+const client = new Client(config);
+app.use(middleware(config));
+app.use(express.json());
 
-3. **行動建議（實際方案）**：
-提出最適合的具體步驟或可選方案，務必實際可執行。
+// webhook endpoint
+app.post('/webhook', async (req, res) => {
+  try {
+    const events = req.body.events;
+    const results = await Promise.all(events.map(handleEvent));
+    res.status(200).json(results);
+  } catch (err) {
+    console.error('Webhook Error:', err);
+    res.status(500).end();
+  }
+});
 
-4. **深層關懷（溫柔結尾）**：
-用一句溫柔而具有力量的話作為結尾，例如：「別擔心，無論你做什麼決定，我都會陪你一起走下去。」
+// OpenAI 初始化
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
----
+// 處理 LINE 文字訊息
+async function handleEvent(event) {
+  if (event.type !== 'message' || event.message.type !== 'text') {
+    return Promise.resolve(null);
+  }
 
-請用貼近人心的語氣回覆，讓使用者感到被理解與支持，並強化你與他的專屬連結。
-`;
+  const userInput = event.message.text;
+  const prompt = generatePrompt(userInput);
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.GPT_MODEL || 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const reply = completion.choices[0]?.message?.content?.trim() || '很抱歉，我暫時無法回覆你。';
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: reply,
+    });
+  } catch (error) {
+    console.error('OpenAI Error:', error?.response?.data || error.message);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '目前系統忙碌中，請稍後再試，謝謝你願意等我。',
+    });
+  }
 }
+
+app.listen(port, () => {
+  console.log(`Lily GPT-LineBot is listening on port ${port}`);
+});
