@@ -1,62 +1,62 @@
 import express from 'express';
-import { Client, middleware } from '@line/bot-sdk';
+import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
 import { generatePrompt } from './prompt.js';
-import fetch from 'node-fetch';
+import OpenAI from 'openai';
 
 dotenv.config();
 
+const app = express();
+const port = process.env.PORT || 3000;
+
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-const openai_api_key = process.env.OPENAI_API_KEY;
-const model = process.env.GPT_MODEL || 'gpt-3.5-turbo';
-
-const app = express();
 const client = new Client(config);
-app.use(middleware(config));
-app.use(express.json());
 
-app.post('/webhook', async (req, res) => {
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+app.post('/webhook', middleware(config), async (req, res) => {
   const events = req.body.events;
-  const results = await Promise.all(
-    events.map(async (event) => {
-      if (event.type === 'message' && event.message.type === 'text') {
-        const userMessage = event.message.text;
-        const reply = await generateReply(userMessage);
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: reply,
-        });
-      } else {
-        return Promise.resolve(null);
-      }
-    })
-  );
+  const results = await Promise.all(events.map(handleEvent));
   res.json(results);
 });
 
-async function generateReply(userInput) {
-  const prompt = generatePrompt(userInput);
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openai_api_key}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+async function handleEvent(event) {
+  if (event.type !== 'message' || event.message.type !== 'text') {
+    return null;
+  }
 
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || '無法取得回應';
+  const userInput = event.message.text;
+
+  try {
+    const messages = generatePrompt(userInput);
+
+    const chatCompletion = await openai.chat.completions.create({
+      model: process.env.GPT_MODEL || 'gpt-4',
+      messages
+    });
+
+    const replyText = chatCompletion.choices[0].message.content;
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyText
+    });
+
+  } catch (error) {
+    console.error('Error processing message:', error);
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '對不起，我遇到了一些問題，請稍後再試一次。'
+    });
+  }
 }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Lily is running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Lily GPT-LineBot is listening on port ${port}`);
 });
