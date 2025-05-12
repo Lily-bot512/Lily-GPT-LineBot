@@ -16,8 +16,11 @@ const config = {
 };
 const client = new Client(config);
 
-app.use(express.json());
-app.use(middleware(config));
+import bodyParser from 'body-parser';
+
+app.post('/webhook', bodyParser.raw({ type: '*/*' }), middleware(config), async (req, res) => {
+  // 處理 webhook 的邏輯
+});
 
 // Webhook 路由
 app.post('/webhook', async (req, res) => {
