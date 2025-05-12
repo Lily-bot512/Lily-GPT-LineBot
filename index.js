@@ -1,6 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { Configuration, OpenAIApi } from 'openai';
+import { OpenAI } from 'openai';
 import { middleware, Client } from '@line/bot-sdk';
 import { generatePrompt } from './prompt.js';
 
@@ -12,14 +12,14 @@ const port = process.env.PORT || 3000;
 // LINE 設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
-
 const client = new Client(config);
-app.use(middleware(config));
-app.use(express.json());
 
-// LINE Webhook 接收端點
+app.use(express.json());
+app.use(middleware(config));
+
+// Webhook 路由
 app.post('/webhook', async (req, res) => {
   try {
     const events = req.body.events;
@@ -31,41 +31,40 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 處理單一事件
+// 處理事件
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
   const userInput = event.message.text;
-  const prompt = generatePrompt(userInput, 'zh-TW');
+  const prompt = generatePrompt(userInput);
 
   try {
-    const configuration = new Configuration({
-      apiKey: process.env.OPENAI_API_KEY
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
-    const openai = new OpenAIApi(configuration);
-    const completion = await openai.createChatCompletion({
-      model: process.env.GPT_MODEL || 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: prompt }]
+    const completion = await openai.chat.completions.create({
+      model: process.env.GPT_MODEL || 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    const reply = completion.data.choices[0].message.content;
+    const reply = completion.choices[0].message.content;
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: reply
+      text: reply,
     });
   } catch (error) {
-    console.error('OpenAI Error:', error.response?.data || error.message);
+    console.error('OpenAI Error:', error);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '莉莉目前無法回覆你，但我會一直在，請稍後再試。'
+      text: '抱歉，我現在沒辦法回應，請稍後再試。',
     });
   }
 }
 
 app.listen(port, () => {
-  console.log(`Lily GPT-LineBot is listening on port ${port}`);
+  console.log(`Lily GPT-LineBot 正在監聽埠口 ${port}`);
 });
