@@ -46,7 +46,7 @@ async function handleEvent(event) {
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const completion = await openai.chat.completions.create({
-      model: process.env.GPT_MODEL || 'gpt-3.5-turbo',
+      model: process.env.GPT_MODEL || 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
     });
 
