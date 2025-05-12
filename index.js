@@ -1,83 +1,40 @@
-import express from 'express'
-import axios from 'axios'
-import bodyParser from 'body-parser'
-import { config } from 'dotenv'
-import { generatePrompt } from './prompt.js'
+import express from 'express';
+import { middleware, Client } from '@line/bot-sdk';
+import { generatePrompt } from './prompt.js';
+import dotenv from 'dotenv';
 
-config()
+dotenv.config();
 
-const app = express()
-const PORT = process.env.PORT || 3000
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
 
-app.use(bodyParser.json())
+const app = express();
+const client = new Client(config);
 
-app.get('/', (req, res) => {
-  res.send('Lily GPT LineBot is running.')
-})
-
-app.post('/webhook', async (req, res) => {
-  const events = req.body.events
-  if (!events || events.length === 0) {
-    return res.status(200).send('No events')
-  }
-
-  for (const event of events) {
-    if (event.type === 'message' && event.message.type === 'text') {
-      const userMessage = event.message.text
-      const prompt = generatePrompt(userMessage)
-
-      const replyToken = event.replyToken
-      const replyMessage = await sendToOpenAI(prompt)
-
-      await replyToLine(replyToken, replyMessage)
-    }
-  }
-
-  res.status(200).send('OK')
-})
-
-async function sendToOpenAI(prompt) {
+app.post('/webhook', middleware(config), async (req, res) => {
   try {
-    const response = await axios.post(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        model: process.env.GPT_MODEL || 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: prompt }]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    )
-    return response.data.choices[0].message.content.trim()
-  } catch (error) {
-    console.error('OpenAI API error:', error.response?.data || error.message)
-    return '抱歉，我暫時無法回答你的問題。'
-  }
-}
+    const events = req.body.events;
 
-async function replyToLine(replyToken, message) {
-  try {
-    await axios.post(
-      'https://api.line.me/v2/bot/message/reply',
-      {
-        replyToken,
-        messages: [{ type: 'text', text: message }]
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+    await Promise.all(events.map(async (event) => {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const reply = await generatePrompt(event.message.text);
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: reply,
+        });
       }
-    )
-  } catch (error) {
-    console.error('LINE API error:', error.response?.data || error.message)
-  }
-}
+    }));
 
+    res.status(200).end(); // 告訴 LINE 伺服器「我處理好了」
+  } catch (error) {
+    console.error('[Webhook Error]', error);
+    res.status(500).end();
+  }
+});
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Lily GPT-LineBot is listening on port ${PORT}`)
-})
+  console.log(`Lily GPT-LineBot is running on port ${PORT}`);
+});
