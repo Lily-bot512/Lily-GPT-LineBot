@@ -9,18 +9,16 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// LINE Bot 設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
-// 建立 LINE client 和中介層
 const client = new Client(config);
+
 app.use(middleware(config));
 app.use(express.json());
 
-// Webhook 路由（LINE 驗證與訊息處理）
 app.post('/webhook', async (req, res) => {
   try {
     const events = req.body.events;
@@ -32,7 +30,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 處理 LINE 訊息事件
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
