@@ -36,6 +36,7 @@ app.post('/webhook', bodyParser.raw({ type: '*/*' }), async (req, res) => {
 
 // 處理 LINE 訊息事件
 async function handleEvent(event) {
+console.log('收到 LINE 訊息事件：', JSON.stringify(event, null, 2));
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
