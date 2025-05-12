@@ -9,16 +9,17 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// LINE 設定
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
 
 const client = new Client(config);
-
 app.use(middleware(config));
 app.use(express.json());
 
+// LINE Webhook 接收端點
 app.post('/webhook', async (req, res) => {
   try {
     const events = req.body.events;
@@ -30,13 +31,14 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// 處理單一事件
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
   const userInput = event.message.text;
-  const prompt = generatePrompt(userInput);
+  const prompt = generatePrompt(userInput, 'zh-TW');
 
   try {
     const configuration = new Configuration({
@@ -50,6 +52,7 @@ async function handleEvent(event) {
     });
 
     const reply = completion.data.choices[0].message.content;
+
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: reply
@@ -58,7 +61,7 @@ async function handleEvent(event) {
     console.error('OpenAI Error:', error.response?.data || error.message);
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '抱歉，我目前無法回應，請稍後再試。'
+      text: '莉莉目前無法回覆你，但我會一直在，請稍後再試。'
     });
   }
 }
