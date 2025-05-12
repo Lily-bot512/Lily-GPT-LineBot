@@ -1,8 +1,10 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { OpenAI } from 'openai';
-import { middleware, Client } from '@line/bot-sdk';
+import { middleware, Client, validateSignature } from '@line/bot-sdk';
 import { generatePrompt } from './prompt.js';
+import bodyParser from 'body-parser';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -16,14 +18,22 @@ const config = {
 };
 const client = new Client(config);
 
-import bodyParser from 'body-parser';
-
-app.post('/webhook', bodyParser.raw({ type: '*/*' }), middleware(config), async (req, res) => {
-  // 處理 webhook 的邏輯
-});
+// 先處理 raw body，供簽名驗證使用
+app.use('/webhook', bodyParser.raw({ type: '*/*' }));
 
 // Webhook 路由
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', (req, res, next) => {
+  // 驗證簽名
+  const signature = req.headers['x-line-signature'];
+  const isValid = validateSignature(req.body, config.channelSecret, signature);
+  if (!isValid) {
+    return res.status(401).send('Invalid signature');
+  }
+
+  // 把 raw body 轉為 JSON，供 middleware 使用
+  req.body = JSON.parse(req.body.toString('utf-8'));
+  middleware(config)(req, res, next);
+}, async (req, res) => {
   try {
     const events = req.body.events;
     const results = await Promise.all(events.map(handleEvent));
@@ -34,7 +44,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// 處理事件
+// 處理 LINE 訊息
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
@@ -44,9 +54,7 @@ async function handleEvent(event) {
   const prompt = generatePrompt(userInput);
 
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     const completion = await openai.chat.completions.create({
       model: process.env.GPT_MODEL || 'gpt-4o',
