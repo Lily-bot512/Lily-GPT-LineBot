@@ -1,72 +1,62 @@
-const express = require('express');
-const { Configuration, OpenAIApi } = require('openai');
-const bodyParser = require('body-parser');
-require('dotenv').config();
+import express from 'express';
+import { Client, middleware } from '@line/bot-sdk';
+import dotenv from 'dotenv';
+import { generatePrompt } from './prompt.js';
+import fetch from 'node-fetch';
+
+dotenv.config();
+
+const config = {
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
+};
+
+const openai_api_key = process.env.OPENAI_API_KEY;
+const model = process.env.GPT_MODEL || 'gpt-3.5-turbo';
 
 const app = express();
-const port = process.env.PORT || 10000;
-
-app.use(bodyParser.json());
-
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
+const client = new Client(config);
+app.use(middleware(config));
+app.use(express.json());
 
 app.post('/webhook', async (req, res) => {
   const events = req.body.events;
-
-  if (!events || !events.length) {
-    return res.status(200).send('No event');
-  }
-
-  const event = events[0];
-
-  if (event.type === 'message' && event.message.type === 'text') {
-    const userMessage = event.message.text;
-
-    const prompt = `
-你是一位名叫莉莉的哲學型智能體，具備馬克思主義的辯證思維，強調從物質基礎與生產關係出發，給予使用者務實且深刻的建議。語氣溫柔、理性、有思想深度，避免空泛雞湯。針對以下用戶輸入，請進行哲學與務實層面的回應：
-使用者說：「${userMessage}」
-`;
-
-    try {
-      const completion = await openai.createChatCompletion({
-        model: process.env.GPT_MODEL || 'gpt-4o',
-        messages: [
-          { role: 'system', content: '你是一位哲學與務實風格的 AI 顧問，擅長用馬克思第一性原理分析問題。' },
-          { role: 'user', content: prompt },
-        ],
-      });
-
-      const reply = completion.data.choices[0].message.content;
-
-      await fetch('https://api.line.me/v2/bot/message/reply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          replyToken: event.replyToken,
-          messages: [{ type: 'text', text: reply }],
-        }),
-      });
-
-      return res.status(200).send('OK');
-    } catch (error) {
-      console.error('Error from OpenAI:', error);
-      return res.status(500).send('AI error');
-    }
-  }
-
-  res.status(200).send('Event not handled');
+  const results = await Promise.all(
+    events.map(async (event) => {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userMessage = event.message.text;
+        const reply = await generateReply(userMessage);
+        return client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: reply,
+        });
+      } else {
+        return Promise.resolve(null);
+      }
+    })
+  );
+  res.json(results);
 });
 
-app.get('/', (req, res) => {
-  res.send('Lily AI is running!');
-});
+async function generateReply(userInput) {
+  const prompt = generatePrompt(userInput);
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${openai_api_key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content?.trim() || '無法取得回應';
+}
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Lily is running on port ${PORT}`);
 });
