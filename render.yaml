@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: lily-gpt-linebot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: GPT_MODEL
+        sync: false
+      - key: PORT
+        value: 10000
