@@ -1,62 +1,48 @@
-import express from 'express';
-import { middleware, Client } from '@line/bot-sdk';
-import dotenv from 'dotenv';
-import { generatePrompt } from './prompt.js';
-import OpenAI from 'openai';
+const express = require('express');
+const line = require('@line/bot-sdk');
+const dotenv = require('dotenv');
+const generatePrompt = require('./prompt');
 
 dotenv.config();
 
-const app = express();
-const port = process.env.PORT || 3000;
-
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET
+  channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
 
-const client = new Client(config);
+const app = express();
+const client = new line.Client(config);
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-app.post('/webhook', middleware(config), async (req, res) => {
-  const events = req.body.events;
-  const results = await Promise.all(events.map(handleEvent));
-  res.json(results);
-});
-
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return null;
-  }
-
-  const userInput = event.message.text;
-
+app.use(express.json()); // 必須啟用 JSON 解析
+app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
-    const messages = generatePrompt(userInput);
+    const events = req.body.events;
 
-    const chatCompletion = await openai.chat.completions.create({
-      model: process.env.GPT_MODEL || 'gpt-4',
-      messages
-    });
+    for (const event of events) {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userMessage = event.message.text;
+        const replyMessage = await generatePrompt(userMessage); // 從 prompt.js 取得回答
 
-    const replyText = chatCompletion.choices[0].message.content;
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: replyMessage,
+        });
+      }
+    }
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: replyText
-    });
-
+    res.status(200).end(); // 告訴 LINE：Webhook 收到成功
   } catch (error) {
-    console.error('Error processing message:', error);
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '對不起，我遇到了一些問題，請稍後再試一次。'
-    });
+    console.error('Webhook Error:', error);
+    res.status(500).end();
   }
-}
+});
 
-app.listen(port, () => {
-  console.log(`Lily GPT-LineBot is listening on port ${port}`);
+// 健康檢查
+app.get('/', (req, res) => {
+  res.send('Lily GPT LineBot is running!');
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Lily GPT LineBot is listening on port ${PORT}`);
 });
